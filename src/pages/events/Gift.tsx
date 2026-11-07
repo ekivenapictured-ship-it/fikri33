@@ -99,8 +99,40 @@ export default function Gift() {
       if (error) throw error
 
       const { data: publicUrl } = supabase.storage.from('event-media').getPublicUrl(data.path)
-      setFormData((current) => ({ ...current, gift_photo: publicUrl.publicUrl }))
-      setSavedMessage('Foto berhasil diunggah. Klik Simpan agar tampil di undangan.')
+      const giftPhotoUrl = publicUrl.publicUrl
+
+      // Persist the uploaded photo immediately so it is stored in the database
+      const { data: updated, error: updateError } = await supabase
+        .from('events')
+        .update({ gift_photo: giftPhotoUrl })
+        .eq('id', id)
+        .select('id, gift_photo')
+        .maybeSingle()
+
+      if (updateError) {
+        console.error('Error saving gift photo URL:', updateError)
+        setFormData((current) => ({ ...current, gift_photo: giftPhotoUrl }))
+        setErrorMessage(
+          updateError.code === 'PGRST204' || /gift_photo/i.test(updateError.message || '')
+            ? 'Foto terunggah, tetapi kolom gift_photo belum ada di tabel events. Jalankan migrasi Supabase terbaru lalu coba lagi.'
+            : getSaveErrorMessage(updateError),
+        )
+        return
+      }
+      if (!updated) {
+        setFormData((current) => ({ ...current, gift_photo: giftPhotoUrl }))
+        setErrorMessage('Foto terunggah, tetapi gagal disimpan. Acara tidak ditemukan atau akun tidak memiliki akses admin.')
+        return
+      }
+
+      setFormData((current) => ({ ...current, gift_photo: giftPhotoUrl }))
+      await queryClient.invalidateQueries({ queryKey: ['event', id] })
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('event-updates')
+        channel.postMessage({ type: 'event-updated', eventId: id })
+        channel.close()
+      }
+      setSavedMessage('Foto Wedding Gift berhasil diunggah dan disimpan.')
     } catch (error) {
       console.error('Error uploading gift photo:', error)
       setErrorMessage(getUploadErrorMessage(error))
