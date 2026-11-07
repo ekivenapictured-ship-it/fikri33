@@ -1,0 +1,3 @@
+ALTER TABLE public.events
+	ADD COLUMN IF NOT EXISTS cover_photo TEXT,
+	ADD COLUMN IF NOT EXISTS gift_photo TEXT;
