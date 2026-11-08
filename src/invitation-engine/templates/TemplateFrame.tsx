@@ -199,7 +199,7 @@ export default function TemplateFrame({ slug, title, event, guestName }: Templat
       ref={frameRef}
       title={`${title} invitation`}
       src={src}
-      sandbox='allow-scripts allow-same-origin allow-forms allow-popups'
+      sandbox='allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox'
       onLoad={sendData}
       style={{ display: 'block', width: '100%', height: '100vh', border: 0 }}
     />
