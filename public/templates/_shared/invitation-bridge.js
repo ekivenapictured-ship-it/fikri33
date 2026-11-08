@@ -217,6 +217,10 @@
       var widget = targets[i].closest('.elementor-widget-button')
       if (url) {
         targets[i].setAttribute('href', url)
+        // Undangan berjalan di dalam iframe; Google Maps/Instagram menolak dimuat
+        // di iframe, jadi tautan eksternal harus dibuka di tab/aplikasi baru.
+        targets[i].setAttribute('target', '_blank')
+        targets[i].setAttribute('rel', 'noopener noreferrer')
         if (widget) widget.removeAttribute('hidden')
       } else {
         if ((field === 'bride_ig' || field === 'groom_ig') && targets[i].getAttribute('href')) continue
