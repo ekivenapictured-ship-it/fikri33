@@ -14,7 +14,7 @@ const MESSAGE_TEMPLATES = [
   {
     id: 'formal',
     name: 'Formal',
-    template: 'Kepada Yth. {name}\n\nTanpa mengurangi rasa hormat, kami mengundang Bapak/Ibu/Saudara/i untuk hadir di acara pernikahan kami.\n\nUndangan lengkap dapat dilihat melalui tautan berikut:\n{link}\n\nMohon maaf apabila ada kesalahan penulisan nama/gelar.\n\nTerima kasih.',
+    template: 'Salam Sejahtera\n\nYth. Bapak/Ibu/Saudara/i\n\nDi Tempat\n\nDengan segala kerendahan hati, kami mengundang Bapak/Ibu/Saudara/i dan teman-teman untuk menghadiri acara pernikahan kami,\n\nUndangan dapat diakses melalui link berikut.\n{link}\n\nMerupakan suatu kebahagiaan bagi kami apabila Bapak/Ibu/Saudara/i dan teman-teman berkenan untuk hadir dan memberikan doa restu.\n\nAtas perhatian, kehadiran dan doanya, kami ucapkan banyak terima kasih.',
   },
   {
     id: 'casual',
@@ -24,7 +24,7 @@ const MESSAGE_TEMPLATES = [
   {
     id: 'islamic',
     name: 'Islami',
-    template: 'Assalamualaikum {name}\n\nDengan memohon Rahmat dan Ridho Allah SWT, kami bermaksud menyelenggarakan acara pernikahan kami.\n\nKami mengharapkan kehadiran Bapak/Ibu/Saudara/i untuk memberikan doa restu.\n\nUndangan digital dapat diakses melalui:\n{link}\n\nWassalamualaikum Warahmatullahi Wabarakatuh.',
+    template: 'Assalamualaikum {name}\n\nDengan memohon Rahmat dan Ridho Allah SWT, kami bermaksud menyelenggarakan acara pernikahan kami.\n\nKami mengharapkan kehadiran Bapak/Ibu/Saudara/i untuk memberikan doa restu.\n\nUndangan lengkap dapat dilihat melalui tautan berikut:\n{link}\n\nWassalamualaikum warahmatullahi wabarakatuh.',
   },
   {
     id: 'short',
@@ -43,85 +43,60 @@ export default function ShareWhatsApp() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    if (id) fetchEvent()
+    if (!id) return
+    const fetchEvent = async () => {
+      try {
+        const { data, error } = await supabase.from('events').select('*').eq('id', id).single()
+        if (error) throw error
+        setEvent(data)
+      } catch (error) {
+        console.error('Error fetching event:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    void fetchEvent()
   }, [id])
 
-  const fetchEvent = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('id', id)
-        .single()
-
-      if (error) throw error
-      setEvent(data)
-    } catch (error) {
-      console.error('Error fetching event:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    if (guestNames.trim()) {
-      const names = guestNames.split('\n').filter(n => n.trim())
-      const invitationLink = event?.slug
-        ? `${window.location.origin}/undangan/${event.slug}`
-        : ''
-
-      const list: GuestEntry[] = names.map(name => ({
-        name: name.trim(),
-        link: `${invitationLink}?to=${encodeURIComponent(name.trim())}`,
-      }))
-      setGuestList(list)
-    } else {
+    if (!guestNames.trim()) {
       setGuestList([])
+      return
     }
+    const invitationLink = event?.slug ? `${window.location.origin}/undangan/${event.slug}` : ''
+    setGuestList(
+      guestNames
+        .split('\n')
+        .filter((name) => name.trim())
+        .map((name) => ({
+          name: name.trim(),
+          link: `${invitationLink}?to=${encodeURIComponent(name.trim())}`,
+        })),
+    )
   }, [guestNames, event])
 
-  const generateWhatsAppLink = (guest: GuestEntry) => {
-    const template = MESSAGE_TEMPLATES.find(t => t.id === selectedTemplate)
-    if (!template) return '#'
-
-    const message = template.template
-      .replace('{name}', guest.name)
-      .replace('{link}', guest.link)
-
-    const encodedMessage = encodeURIComponent(message)
-    return `https://wa.me/?text=${encodedMessage}`
+  const getMessage = (guest: GuestEntry) => {
+    const template = MESSAGE_TEMPLATES.find((item) => item.id === selectedTemplate)
+    return template?.template.replace('{name}', guest.name).replace('{link}', guest.link) ?? ''
   }
 
-  const handleCopyLink = (guest: GuestEntry) => {
-    const template = MESSAGE_TEMPLATES.find(t => t.id === selectedTemplate)
-    if (!template) return
+  const generateWhatsAppLink = (guest: GuestEntry) =>
+    `https://wa.me/?text=${encodeURIComponent(getMessage(guest))}`
 
-    const message = template.template
-      .replace('{name}', guest.name)
-      .replace('{link}', guest.link)
-
-    navigator.clipboard.writeText(message)
+  const handleCopyMessage = (guest: GuestEntry) => {
+    void navigator.clipboard.writeText(getMessage(guest))
     alert('Pesan berhasil disalin!')
   }
 
   const handleSave = async () => {
     if (!id || guestList.length === 0) return
-
     try {
-      // Delete existing guests for this event
-      await supabase.from('event_guests').delete().eq('event_id', id)
-
-      // Insert new guests
-      const guestsToInsert = guestList.map(guest => ({
-        event_id: id,
-        name: guest.name,
-        invitation_link: guest.link,
-      }))
-
-      const { error } = await supabase.from('event_guests').insert(guestsToInsert)
-
+      const { error: deleteError } = await supabase.from('event_guests').delete().eq('event_id', id)
+      if (deleteError) throw deleteError
+      const { error } = await supabase.from('event_guests').insert(
+        guestList.map((guest) => ({ event_id: id, name: guest.name, invitation_link: guest.link })),
+      )
       if (error) throw error
-
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (error) {
@@ -133,8 +108,8 @@ export default function ShareWhatsApp() {
   if (loading) {
     return (
       <EventWorkspaceLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="flex h-64 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900" />
         </div>
       </EventWorkspaceLayout>
     )
@@ -143,7 +118,7 @@ export default function ShareWhatsApp() {
   if (!event) {
     return (
       <EventWorkspaceLayout>
-        <div className="text-center py-12">
+        <div className="py-12 text-center">
           <h2 className="text-xl font-semibold text-gray-900">Acara tidak ditemukan</h2>
         </div>
       </EventWorkspaceLayout>
@@ -153,65 +128,55 @@ export default function ShareWhatsApp() {
   return (
     <EventWorkspaceLayout>
       <div className="space-y-6">
-        <div className="flex justify-between items-start">
+        <div className="flex items-start justify-between">
           <div>
-            <Link
-              to={`/events/${event.id}`}
-              className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-2"
-            >
-              <ArrowLeft className="w-4 h-4 mr-1" />
+            <Link to={`/events/${event.id}`} className="mb-2 inline-flex items-center text-sm text-gray-600 hover:text-gray-900">
+              <ArrowLeft className="mr-1 h-4 w-4" />
               Kembali ke Workspace
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">Share Undangan via WhatsApp</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Generate link WhatsApp untuk setiap tamu dengan nama personal
-            </p>
+            <p className="mt-1 text-sm text-gray-500">Generate link WhatsApp untuk setiap tamu dengan nama personal</p>
           </div>
           <button
-            onClick={handleSave}
+            type="button"
+            onClick={() => void handleSave()}
             disabled={guestList.length === 0}
-            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+            className="flex items-center rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            <Save className="w-4 h-4 mr-2" />
+            <Save className="mr-2 h-4 w-4" />
             {saved ? 'Tersimpan!' : 'Simpan Tamu'}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="space-y-4">
-            <div className="bg-white shadow rounded-lg p-6 space-y-4">
-              <h2 className="text-lg font-medium text-gray-900 flex items-center">
-                <Users className="w-5 h-5 mr-2" />
+            <div className="space-y-4 rounded-lg bg-white p-6 shadow">
+              <h2 className="flex items-center text-lg font-medium text-gray-900">
+                <Users className="mr-2 h-5 w-5" />
                 Daftar Nama Tamu
               </h2>
-              <p className="text-sm text-gray-500">
-                Masukkan nama tamu, satu nama per baris (Enter untuk baris baru)
-              </p>
+              <p className="text-sm text-gray-500">Masukkan nama tamu, satu nama per baris (Enter untuk baris baru)</p>
               <textarea
                 value={guestNames}
                 onChange={(e) => setGuestNames(e.target.value)}
-                placeholder="Contoh:&#10;Budi Santoso&#10;Siti Aminah&#10;Ahmad Wijaya"
+                placeholder={'Contoh:\nBudi Santoso\nSiti Aminah\nAhmad Wijaya'}
                 rows={15}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-              <div className="text-sm text-gray-600">
-                Total: {guestList.length} tamu
-              </div>
+              <div className="text-sm text-gray-600">Total: {guestList.length} tamu</div>
             </div>
 
-            <div className="bg-white shadow rounded-lg p-6 space-y-4">
-              <h2 className="text-lg font-medium text-gray-900 flex items-center">
-                <MessageCircle className="w-5 h-5 mr-2" />
+            <div className="space-y-4 rounded-lg bg-white p-6 shadow">
+              <h2 className="flex items-center text-lg font-medium text-gray-900">
+                <MessageCircle className="mr-2 h-5 w-5" />
                 Pilih Template Ucapan
               </h2>
               <div className="space-y-2">
                 {MESSAGE_TEMPLATES.map((template) => (
                   <label
                     key={template.id}
-                    className={`flex items-center p-3 border rounded-md cursor-pointer transition-colors ${
-                      selectedTemplate === template.id
-                        ? 'border-indigo-500 bg-indigo-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                    className={`flex cursor-pointer items-center rounded-md border p-3 transition-colors ${
+                      selectedTemplate === template.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <input
@@ -224,10 +189,8 @@ export default function ShareWhatsApp() {
                     />
                     <div className="flex-1">
                       <div className="font-medium text-gray-900">{template.name}</div>
-                      <div className="text-sm text-gray-500 mt-1 whitespace-pre-line">
-                        {template.template
-                          .replace('{name}', '[Nama Tamu]')
-                          .replace('{link}', '[Link Undangan]')}
+                      <div className="mt-1 whitespace-pre-line text-sm text-gray-500">
+                        {template.template.replace('{name}', '[Nama Tamu]').replace('{link}', '[Link Undangan]')}
                       </div>
                     </div>
                   </label>
@@ -236,42 +199,37 @@ export default function ShareWhatsApp() {
             </div>
           </div>
 
-          <div className="bg-white shadow rounded-lg p-6 space-y-4">
+          <div className="space-y-4 rounded-lg bg-white p-6 shadow">
             <h2 className="text-lg font-medium text-gray-900">Tombol Share WhatsApp</h2>
             <p className="text-sm text-gray-500">
               Klik tombol WhatsApp untuk langsung membuka aplikasi WhatsApp dengan pesan yang sudah terisi
             </p>
-
             {guestList.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                Belum ada nama tamu. Masukkan nama di kolom sebelah kiri.
-              </div>
+              <div className="py-12 text-center text-gray-500">Belum ada nama tamu. Masukkan nama di kolom sebelah kiri.</div>
             ) : (
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+              <div className="max-h-[600px] space-y-2 overflow-y-auto">
                 {guestList.map((guest, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 border border-gray-200 rounded-md hover:border-indigo-300 transition-colors"
-                  >
+                  <div key={index} className="flex items-center justify-between rounded-md border border-gray-200 p-3 transition-colors hover:border-indigo-300">
                     <div className="flex-1">
                       <div className="font-medium text-gray-900">{guest.name}</div>
-                      <div className="text-xs text-gray-500 truncate">{guest.link}</div>
+                      <div className="truncate text-xs text-gray-500">{guest.link}</div>
                     </div>
-                    <div className="flex space-x-2 ml-4">
+                    <div className="ml-4 flex space-x-2">
                       <button
-                        onClick={() => handleCopyLink(guest)}
-                        className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                        type="button"
+                        onClick={() => handleCopyMessage(guest)}
+                        className="rounded-md p-2 text-gray-600 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
                         title="Salin pesan"
                       >
-                        <Copy className="w-4 h-4" />
+                        <Copy className="h-4 w-4" />
                       </button>
                       <a
                         href={generateWhatsAppLink(guest)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+                        className="flex items-center rounded-md bg-green-500 px-3 py-2 text-white transition-colors hover:bg-green-600"
                       >
-                        <MessageCircle className="w-4 h-4 mr-2" />
+                        <MessageCircle className="mr-2 h-4 w-4" />
                         WA
                       </a>
                     </div>
